@@ -2,3 +2,6 @@ project_id = "ydgjuzocrfeobptjyvrt"
 
 [functions.analyze-sales]
 verify_jwt = false
+
+[functions.google-trends]
+verify_jwt = false
