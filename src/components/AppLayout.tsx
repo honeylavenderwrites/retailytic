@@ -6,6 +6,7 @@ import {
   Package,
   FlaskConical,
   Upload,
+  TrendingUp,
   Bell,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ const navItems = [
   { path: "/customers", label: "Customer Analytics", icon: Users },
   { path: "/inventory", label: "Inventory Intel", icon: Package },
   { path: "/analytics", label: "Analytics Lab", icon: FlaskConical },
+  { path: "/trends", label: "Google Trends", icon: TrendingUp },
   { path: "/data", label: "Data Management", icon: Upload },
 ];
 
