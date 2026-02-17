@@ -4,6 +4,7 @@ import {
   Line, ComposedChart,
 } from "recharts";
 import { FlaskConical } from "lucide-react";
+import EmptyDataState from "@/components/EmptyDataState";
 
 const seasonalityData = [
   { month: 'Jan', index: 85 }, { month: 'Feb', index: 72 },
@@ -30,7 +31,24 @@ const momentumMetrics = [
 ];
 
 export default function AnalyticsLab() {
-  const { monthlySalesData, forecastData } = useDataStore();
+  const { monthlySalesData, forecastData, dataSource } = useDataStore();
+
+  if (dataSource === 'mock') {
+    return (
+      <div className="animate-slide-in space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+            <FlaskConical className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Analytics Lab</h1>
+            <p className="text-sm text-muted-foreground">Forecasting, seasonality & market basket analysis</p>
+          </div>
+        </div>
+        <EmptyDataState title="No Analytics Data" description="Upload your sales file to see revenue forecasts, seasonality patterns and market basket analysis." />
+      </div>
+    );
+  }
 
   const combinedForecast = [
     ...monthlySalesData.map(d => ({ month: d.month, actual: d.revenue, predicted: null as number | null, lower: null as number | null, upper: null as number | null })),

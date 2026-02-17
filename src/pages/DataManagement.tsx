@@ -145,81 +145,86 @@ export default function DataManagement() {
         )}
       </div>
 
-      {/* Cleaning Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        {cleaningStats.map((stat) => (
-          <div key={stat.label} className="flex items-center gap-3 rounded-lg border bg-card p-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
+      {/* Only show stats and transparency sections after data upload */}
+      {dataSource !== 'mock' && (
+        <>
+          {/* Cleaning Stats */}
+          <div className="grid grid-cols-4 gap-4">
+            {cleaningStats.map((stat) => (
+              <div key={stat.label} className="flex items-center gap-3 rounded-lg border bg-card p-4">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                  <stat.icon className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-card-foreground">{stat.value}</p>
+                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Data Transparency */}
+          <div className="rounded-lg border bg-card">
+            <div className="border-b p-4">
+              <h3 className="text-sm font-semibold text-card-foreground">Data Parsing Transparency</h3>
+              <p className="text-xs text-muted-foreground">How raw rows are separated into customer & product records</p>
             </div>
-            <div>
-              <p className="text-lg font-bold text-card-foreground">{stat.value}</p>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground">
+                    <th className="px-4 py-3 text-left font-medium">Row</th>
+                    <th className="px-4 py-3 text-left font-medium">Raw Input</th>
+                    <th className="w-8 px-2 py-3" />
+                    <th className="px-4 py-3 text-left font-medium">Detected Type</th>
+                    <th className="px-4 py-3 text-left font-medium">Parsed Name</th>
+                    <th className="px-4 py-3 text-left font-medium">Product Code</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleRawData.map((row) => (
+                    <tr key={row.row} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{row.row}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-card-foreground">{row.original}</td>
+                      <td className="px-2 py-3">
+                        <ArrowRight className="h-3.5 w-3.5 text-primary" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          row.parsed.type === 'Customer' ? 'bg-info/15 text-info' : 'bg-primary/15 text-primary'
+                        }`}>
+                          {row.parsed.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-card-foreground">{row.parsed.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-primary">{row.parsed.productCode}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* Data Transparency */}
-      <div className="rounded-lg border bg-card">
-        <div className="border-b p-4">
-          <h3 className="text-sm font-semibold text-card-foreground">Data Parsing Transparency</h3>
-          <p className="text-xs text-muted-foreground">How raw rows are separated into customer & product records</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs uppercase text-muted-foreground">
-                <th className="px-4 py-3 text-left font-medium">Row</th>
-                <th className="px-4 py-3 text-left font-medium">Raw Input</th>
-                <th className="w-8 px-2 py-3" />
-                <th className="px-4 py-3 text-left font-medium">Detected Type</th>
-                <th className="px-4 py-3 text-left font-medium">Parsed Name</th>
-                <th className="px-4 py-3 text-left font-medium">Product Code</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sampleRawData.map((row) => (
-                <tr key={row.row} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{row.row}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-card-foreground">{row.original}</td>
-                  <td className="px-2 py-3">
-                    <ArrowRight className="h-3.5 w-3.5 text-primary" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                      row.parsed.type === 'Customer' ? 'bg-info/15 text-info' : 'bg-primary/15 text-primary'
-                    }`}>
-                      {row.parsed.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-card-foreground">{row.parsed.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-primary">{row.parsed.productCode}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Processing Pipeline */}
-      <div className="rounded-lg border bg-card p-5">
-        <h3 className="text-sm font-semibold text-card-foreground">Processing Pipeline</h3>
-        <p className="mb-4 text-xs text-muted-foreground">How your data flows through Retailytics</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {['Raw Upload', 'Row Classification', 'Customer Extraction', 'Product Normalization', 'Code Assignment', 'Analytics Ready'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                  {i + 1}
+          {/* Processing Pipeline */}
+          <div className="rounded-lg border bg-card p-5">
+            <h3 className="text-sm font-semibold text-card-foreground">Processing Pipeline</h3>
+            <p className="mb-4 text-xs text-muted-foreground">How your data flows through Retailytics</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {['Raw Upload', 'Row Classification', 'Customer Extraction', 'Product Normalization', 'Code Assignment', 'Analytics Ready'].map((step, i) => (
+                <div key={step} className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                      {i + 1}
+                    </div>
+                    <span className="whitespace-nowrap text-xs font-medium text-card-foreground">{step}</span>
+                  </div>
+                  {i < 5 && <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                 </div>
-                <span className="whitespace-nowrap text-xs font-medium text-card-foreground">{step}</span>
-              </div>
-              {i < 5 && <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

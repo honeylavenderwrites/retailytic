@@ -2,6 +2,7 @@ import { useDataStore } from "@/store/dataStore";
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
+import EmptyDataState from "@/components/EmptyDataState";
 
 const SEGMENT_COLORS: Record<string, string> = {
   VIP: 'hsl(173, 58%, 39%)',
@@ -22,7 +23,19 @@ function getCohortColor(val: number | null): string {
 }
 
 export default function CustomerAnalytics() {
-  const { customers, rfmSegments, cohortData } = useDataStore();
+  const { customers, rfmSegments, cohortData, dataSource } = useDataStore();
+
+  if (dataSource === 'mock') {
+    return (
+      <div className="animate-slide-in space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Customer Analytics</h1>
+          <p className="text-sm text-muted-foreground">Segmentation, lifetime value & churn intelligence</p>
+        </div>
+        <EmptyDataState title="No Customer Data" description="Upload your sales file to see customer segments, RFM analysis and retention cohorts." />
+      </div>
+    );
+  }
 
   const clusterData = customers.map((c) => ({
     name: c.name,

@@ -1,5 +1,6 @@
 import React from "react";
 import KPICard from "@/components/KPICard";
+import EmptyDataState from "@/components/EmptyDataState";
 import { useDataStore } from "@/store/dataStore";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -29,12 +30,27 @@ const CustomTreemapContent = (props: any) => {
 };
 
 export default function Dashboard() {
-  const { kpiData, monthlySalesData, categoryBreakdown, inventoryAlerts, paymentMethods } = useDataStore();
+  const { kpiData, monthlySalesData, categoryBreakdown, inventoryAlerts, paymentMethods, dataSource } = useDataStore();
+
+  if (dataSource === 'mock') {
+    return (
+      <div className="animate-slide-in space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Executive Overview</h1>
+          <p className="text-sm text-muted-foreground">Real-time business health — FY 2025/26</p>
+        </div>
+        <EmptyDataState
+          title="No Data Yet"
+          description="Upload your sales data file (CSV or XLSX) to see KPIs, revenue trends, category breakdowns and more."
+        />
+      </div>
+    );
+  }
 
   const treemapData = categoryBreakdown.map((c, i) => ({
     name: c.name,
     size: c.revenue,
-    fill: COLORS[i],
+    fill: COLORS[i % COLORS.length],
   }));
 
   return (
