@@ -3,9 +3,22 @@ import { AlertTriangle, CheckCircle, TrendingDown } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
+import EmptyDataState from "@/components/EmptyDataState";
 
 export default function InventoryIntelligence() {
-  const { products, inventoryAlerts } = useDataStore();
+  const { products, inventoryAlerts, dataSource } = useDataStore();
+
+  if (dataSource === 'mock') {
+    return (
+      <div className="animate-slide-in space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Inventory Intelligence</h1>
+          <p className="text-sm text-muted-foreground">Stock monitoring, ABC classification & dead stock analysis</p>
+        </div>
+        <EmptyDataState title="No Inventory Data" description="Upload your sales file to see stock levels, ABC classification and inventory alerts." />
+      </div>
+    );
+  }
 
   const abcData = [
     { class: 'A', count: products.filter(p => p.abcClass === 'A').length, color: 'hsl(173, 58%, 39%)' },

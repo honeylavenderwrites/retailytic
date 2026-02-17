@@ -4,9 +4,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { Search, ArrowUpDown } from "lucide-react";
+import EmptyDataState from "@/components/EmptyDataState";
 
 export default function SalesBreakdown() {
-  const { products } = useDataStore();
+  const { products, dataSource } = useDataStore();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<'totalRevenue' | 'totalQuantitySold'>('totalRevenue');
 
@@ -30,6 +31,18 @@ export default function SalesBreakdown() {
       };
     });
   })();
+
+  if (dataSource === 'mock') {
+    return (
+      <div className="animate-slide-in space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Sales Breakdown</h1>
+          <p className="text-sm text-muted-foreground">Product-code-wise revenue, quantity & profitability</p>
+        </div>
+        <EmptyDataState title="No Sales Data" description="Upload your sales file to see product-level revenue, Pareto analysis and ABC classification." />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-slide-in space-y-6">

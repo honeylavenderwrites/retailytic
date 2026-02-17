@@ -5,13 +5,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-interface ParsedRow {
+interface Transaction {
   date: string;
   voucherNo: string;
   customerName: string;
+  transactionMode: string;
+  products: ProductLine[];
+  totalGross: number;
+  totalDiscount: number;
+  totalNet: number;
+  totalVat: number;
+  totalQty: number;
+}
+
+interface ProductLine {
   productName: string;
   productCode: string;
-  transactionMode: string;
+  unit: string;
   quantity: number;
   rate: number;
   gross: number;
@@ -19,138 +29,231 @@ interface ParsedRow {
   taxableAmt: number;
   vatAmt: number;
   netAmt: number;
-  unit: string;
 }
+
+// --- Utility functions ---
 
 function parseNumber(val: any): number {
   if (typeof val === 'number') return val;
   if (!val) return 0;
-  const cleaned = String(val).replace(/,/g, '').trim();
+  let cleaned = String(val).replace(/\s/g, '').replace(/[R$\u20AC$रू]/g, '');
+  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',');
+  if (lastDot === -1 && lastComma === -1) {
+    return parseFloat(cleaned) || 0;
+  }
+  if (lastDot > lastComma) {
+    cleaned = cleaned.replace(/,/g, '');
+  } else if (lastComma > lastDot) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  }
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
 
-function detectColumns(headers: string[]): Record<string, number> {
-  const mapping: Record<string, number> = {};
-  const lowerHeaders = headers.map(h => (h || '').toLowerCase().trim());
-  
-  const patterns: Record<string, string[]> = {
-    date: ['date', 'date (a.d.)', 'date_ad', 'trans_date', 'transaction date', 'sale_date'],
-    voucherNo: ['voucher', 'voucher no', 'voucher no.', 'invoice', 'bill no', 'bill_no'],
-    productName: ['product name', 'product', 'item', 'item name', 'description', 'product_name'],
-    productCode: ['product code', 'code', 'item code', 'sku', 'product_code'],
-    transactionMode: ['transaction mode', 'payment', 'payment mode', 'mode', 'payment method', 'transaction_mode'],
-    quantity: ['quantity', 'qty', 'units', 'count'],
-    rate: ['rate', 'price', 'unit price', 'unit_price', 'mrp'],
-    gross: ['gross', 'gross amount', 'gross_amount', 'total'],
-    discount: ['discount', 'disc', 'discount amount', 'disc_amount'],
-    taxableAmt: ['taxable', 'taxable amt', 'taxable amt.', 'taxable_amt', 'non taxable amt.', 'taxable amount'],
-    vatAmt: ['vat', 'vat amt', 'vat amt.', 'vat_amt', 'tax', 'tax amount'],
-    netAmt: ['net', 'net amt', 'net amt.', 'net_amt', 'net amount', 'final amount', 'amount'],
-    unit: ['unit', 'uom'],
-  };
-
-  for (const [field, keywords] of Object.entries(patterns)) {
-    for (const kw of keywords) {
-      const idx = lowerHeaders.findIndex(h => h === kw || h.includes(kw));
-      if (idx !== -1 && !(field in mapping)) {
-        mapping[field] = idx;
-        break;
-      }
-    }
-  }
-  return mapping;
+function normalizeColumnName(name: string): string {
+  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s.]+/g, " ").trim();
 }
 
-function parseRows(rawRows: any[][], headers: string[]): ParsedRow[] {
-  const colMap = detectColumns(headers);
-  const rows: ParsedRow[] = [];
+function findColumnIndex(headers: string[], possibleNames: string[]): number {
+  const normalizedHeaders = headers.map(h => h ? normalizeColumnName(String(h)) : '');
+  const normalizedNames = possibleNames.map(normalizeColumnName);
+  // Exact match
+  for (const name of normalizedNames) {
+    const idx = normalizedHeaders.indexOf(name);
+    if (idx !== -1) return idx;
+  }
+  // Starts with
+  for (const name of normalizedNames) {
+    const idx = normalizedHeaders.findIndex(h => h.startsWith(name));
+    if (idx !== -1) return idx;
+  }
+  // Contains
+  for (const name of normalizedNames) {
+    const idx = normalizedHeaders.findIndex(h => h.includes(name));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function normalizePaymentMethod(method: string): string {
+  if (!method) return 'Other';
+  const m = method.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+  if (m === 'cash') return 'Cash';
+  if (m.includes('fonepay') || m.includes('fone pay')) return 'FonePay';
+  if (m.includes('credit') && m.includes('card') || m === 'creditcard') return 'Credit Card';
+  if (m.includes('debit') && m.includes('card') || m === 'debitcard') return 'Debit Card';
+  if (m.includes('esewa') || m.includes('e-sewa')) return 'eSewa';
+  if (m.includes('khalti')) return 'Khalti';
+  if (m.includes('cheque') || m.includes('check')) return 'Cheque';
+  if (m.includes('bank') || m.includes('transfer')) return 'Bank Transfer';
+  // Title case the original
+  return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
+}
+
+function normalizeCustomerName(name: string): string {
+  if (!name) return '';
+  const trimmed = name.trim();
+  const upper = trimmed.toUpperCase();
+  if (upper === 'CASH PARTY' || upper === 'CASHPARTY' || upper === 'CASH') return 'Cash Party (Walk-in)';
+  // Title case
+  return trimmed.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
+function parseDate(dateVal: any): string {
+  if (!dateVal) return '';
+  if (typeof dateVal === 'number') {
+    const d = XLSX.SSF.parse_date_code(dateVal);
+    if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+    return '';
+  }
+  const s = String(dateVal).trim();
+  // MM-DD-YYYY format
+  const mdy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (mdy) return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
+  // YYYY-MM-DD
+  const ymd = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+  return s;
+}
+
+function categorizeProduct(name: string): string {
+  const lower = (name || '').toLowerCase();
+  if (lower.includes('pant') || lower.includes('jeans') || lower.includes('trouser') || lower.includes('skirt')) return 'Bottoms';
+  if (lower.includes('shoe') || lower.includes('slipper') || lower.includes('sandal') || lower.includes('boot')) return 'Footwear';
+  if (lower.includes('belt') && !lower.includes('pant')) return 'Accessories';
+  if (lower.includes('bag') || lower.includes('scarf') || lower.includes('clutch') || lower.includes('accessori')) return 'Accessories';
+  if (lower.includes('dress') || lower.includes('gown') || lower.includes('frock') || lower.includes('co-ord') || lower.includes('coord')) return 'Dresses';
+  return 'Tops';
+}
+
+// --- Core parsing ---
+
+function detectColumns(headers: string[]) {
+  return {
+    date: findColumnIndex(headers, ['date (a.d.)', 'date', 'trans_date', 'transaction date', 'sale_date']),
+    voucherNo: findColumnIndex(headers, ['voucher no', 'voucher no.', 'voucher', 'invoice', 'bill no']),
+    productName: findColumnIndex(headers, ['product name', 'product', 'item name', 'item', 'description']),
+    productCode: findColumnIndex(headers, ['product code', 'code', 'item code', 'sku']),
+    transactionMode: findColumnIndex(headers, ['transaction mode', 'payment mode', 'payment method', 'payment', 'mode']),
+    quantity: findColumnIndex(headers, ['quantity', 'qty', 'units', 'count']),
+    rate: findColumnIndex(headers, ['rate', 'price', 'unit price', 'mrp']),
+    gross: findColumnIndex(headers, ['gross', 'gross amount', 'total']),
+    discount: findColumnIndex(headers, ['discount', 'disc']),
+    taxableAmt: findColumnIndex(headers, ['taxable amt', 'taxable amt.', 'taxable', 'taxable amount']),
+    vatAmt: findColumnIndex(headers, ['vat amt', 'vat amt.', 'vat', 'tax', 'tax amount']),
+    netAmt: findColumnIndex(headers, ['net amt', 'net amt.', 'net', 'net amount', 'final amount', 'amount']),
+    unit: findColumnIndex(headers, ['unit', 'uom']),
+  };
+}
+
+function getVal(row: any[], idx: number): string {
+  if (idx === -1 || !row || idx >= row.length) return '';
+  return String(row[idx] || '').trim();
+}
+
+function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
+  const col = detectColumns(headers);
+  const transactions: Transaction[] = [];
+  let currentTxn: Transaction | null = null;
 
   for (const row of rawRows) {
     if (!row || row.length === 0) continue;
-    
-    const dateVal = colMap.date !== undefined ? row[colMap.date] : '';
-    const grossVal = parseNumber(colMap.gross !== undefined ? row[colMap.gross] : 0);
-    const netVal = parseNumber(colMap.netAmt !== undefined ? row[colMap.netAmt] : 0);
-    
-    // Skip rows that don't look like transaction data
-    if (!dateVal && grossVal === 0 && netVal === 0) continue;
-    
-    let dateStr = '';
-    if (dateVal) {
-      if (typeof dateVal === 'number') {
-        // Excel serial date
-        const d = XLSX.SSF.parse_date_code(dateVal);
-        if (d) dateStr = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
-      } else {
-        dateStr = String(dateVal).trim();
-      }
-    }
 
-    rows.push({
-      date: dateStr,
-      voucherNo: colMap.voucherNo !== undefined ? String(row[colMap.voucherNo] || '') : '',
-      customerName: '',
-      productName: colMap.productName !== undefined ? String(row[colMap.productName] || '') : '',
-      productCode: colMap.productCode !== undefined ? String(row[colMap.productCode] || '') : '',
-      transactionMode: colMap.transactionMode !== undefined ? String(row[colMap.transactionMode] || '') : '',
-      quantity: parseNumber(colMap.quantity !== undefined ? row[colMap.quantity] : 0),
-      rate: parseNumber(colMap.rate !== undefined ? row[colMap.rate] : 0),
-      gross: grossVal,
-      discount: parseNumber(colMap.discount !== undefined ? row[colMap.discount] : 0),
-      taxableAmt: parseNumber(colMap.taxableAmt !== undefined ? row[colMap.taxableAmt] : 0),
-      vatAmt: parseNumber(colMap.vatAmt !== undefined ? row[colMap.vatAmt] : 0),
-      netAmt: netVal,
-      unit: colMap.unit !== undefined ? String(row[colMap.unit] || 'Pcs') : 'Pcs',
-    });
+    const nonEmpty = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '').length;
+    if (nonEmpty < 2) continue; // skip empty/separator rows
+
+    const dateVal = col.date !== -1 ? row[col.date] : null;
+    const voucherVal = getVal(row, col.voucherNo);
+    const productNameVal = getVal(row, col.productName);
+    const productCodeVal = getVal(row, col.productCode);
+    const dateStr = parseDate(dateVal);
+
+    // Header row: has date + voucher, "product name" col actually contains customer name, no product code
+    const isHeaderRow = !!(dateStr && voucherVal && productNameVal && !productCodeVal);
+    // Detail row: no date, no voucher, has product name + product code
+    const isDetailRow = !dateStr && !voucherVal && !!productNameVal && !!productCodeVal;
+
+    if (isHeaderRow) {
+      // Save previous transaction
+      if (currentTxn) transactions.push(currentTxn);
+
+      currentTxn = {
+        date: dateStr,
+        voucherNo: voucherVal,
+        customerName: normalizeCustomerName(productNameVal),
+        transactionMode: normalizePaymentMethod(getVal(row, col.transactionMode)),
+        products: [],
+        totalGross: parseNumber(col.gross !== -1 ? row[col.gross] : 0),
+        totalDiscount: parseNumber(col.discount !== -1 ? row[col.discount] : 0),
+        totalNet: parseNumber(col.netAmt !== -1 ? row[col.netAmt] : 0),
+        totalVat: parseNumber(col.vatAmt !== -1 ? row[col.vatAmt] : 0),
+        totalQty: parseNumber(col.quantity !== -1 ? row[col.quantity] : 0),
+      };
+    } else if (isDetailRow && currentTxn) {
+      currentTxn.products.push({
+        productName: productNameVal.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '),
+        productCode: productCodeVal,
+        unit: getVal(row, col.unit) || 'Pcs',
+        quantity: parseNumber(col.quantity !== -1 ? row[col.quantity] : 1),
+        rate: parseNumber(col.rate !== -1 ? row[col.rate] : 0),
+        gross: parseNumber(col.gross !== -1 ? row[col.gross] : 0),
+        discount: parseNumber(col.discount !== -1 ? row[col.discount] : 0),
+        taxableAmt: parseNumber(col.taxableAmt !== -1 ? row[col.taxableAmt] : 0),
+        vatAmt: parseNumber(col.vatAmt !== -1 ? row[col.vatAmt] : 0),
+        netAmt: parseNumber(col.netAmt !== -1 ? row[col.netAmt] : 0),
+      });
+    }
   }
-  return rows;
+  // Don't forget the last transaction
+  if (currentTxn) transactions.push(currentTxn);
+
+  return transactions;
 }
 
-function analyzeData(rows: ParsedRow[]) {
-  // Basic summary
-  const totalRevenue = rows.reduce((s, r) => s + r.netAmt, 0);
-  const totalGross = rows.reduce((s, r) => s + r.gross, 0);
-  const totalDiscount = rows.reduce((s, r) => s + r.discount, 0);
-  const totalVat = rows.reduce((s, r) => s + r.vatAmt, 0);
-  const totalQuantity = rows.reduce((s, r) => s + r.quantity, 0);
+// --- Analysis ---
 
-  // Date range
-  const dates = rows.map(r => r.date).filter(d => d.length > 0).sort();
+function analyzeData(transactions: Transaction[]) {
+  // Flatten for totals
+  const allProducts = transactions.flatMap(t => t.products.map(p => ({ ...p, customer: t.customerName, date: t.date, mode: t.transactionMode })));
+
+  const totalRevenue = allProducts.reduce((s, p) => s + p.netAmt, 0);
+  const totalGross = allProducts.reduce((s, p) => s + p.gross, 0);
+  const totalDiscount = allProducts.reduce((s, p) => s + p.discount, 0);
+  const totalVat = allProducts.reduce((s, p) => s + p.vatAmt, 0);
+  const totalQuantity = allProducts.reduce((s, p) => s + p.quantity, 0);
+
+  const dates = transactions.map(t => t.date).filter(Boolean).sort();
   const startDate = dates[0] || '';
   const endDate = dates[dates.length - 1] || '';
 
-  // Products aggregation
+  // --- Products ---
   const productMap = new Map<string, { name: string; qty: number; revenue: number; gross: number; discount: number }>();
-  for (const r of rows) {
-    if (!r.productName && !r.productCode) continue;
-    const key = r.productCode || r.productName;
-    const existing = productMap.get(key) || { name: r.productName, qty: 0, revenue: 0, gross: 0, discount: 0 };
-    existing.qty += r.quantity;
-    existing.revenue += r.netAmt;
-    existing.gross += r.gross;
-    existing.discount += r.discount;
-    if (r.productName) existing.name = r.productName;
-    productMap.set(key, existing);
+  for (const p of allProducts) {
+    const key = p.productCode || p.productName;
+    const ex = productMap.get(key) || { name: p.productName, qty: 0, revenue: 0, gross: 0, discount: 0 };
+    ex.qty += p.quantity;
+    ex.revenue += p.netAmt;
+    ex.gross += p.gross;
+    ex.discount += p.discount;
+    if (p.productName) ex.name = p.productName;
+    productMap.set(key, ex);
   }
 
-  const sortedProducts = [...productMap.entries()]
-    .sort((a, b) => b[1].revenue - a[1].revenue);
-  
+  const sortedProducts = [...productMap.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
   const totalProductRevenue = sortedProducts.reduce((s, [, p]) => s + p.revenue, 0);
   let cumulativeRev = 0;
 
   const products = sortedProducts.map(([code, p]) => {
     cumulativeRev += p.revenue;
     const abcClass = (cumulativeRev / totalProductRevenue) <= 0.7 ? 'A' : (cumulativeRev / totalProductRevenue) <= 0.9 ? 'B' : 'C';
-    const profit = Math.round(p.revenue * 0.3); // estimate 30% margin
     return {
       productCode: code,
       productName: p.name,
       category: categorizeProduct(p.name),
       totalQuantitySold: p.qty,
       totalRevenue: Math.round(p.revenue),
-      totalProfit: profit,
+      totalProfit: Math.round(p.revenue * 0.3),
       avgPrice: p.qty > 0 ? Math.round(p.revenue / p.qty) : 0,
       stockLevel: Math.max(5, Math.round(Math.random() * 50)),
       reorderPoint: Math.max(3, Math.round(Math.random() * 20)),
@@ -158,38 +261,31 @@ function analyzeData(rows: ParsedRow[]) {
     };
   });
 
-  // Customer aggregation  
-  const customerMap = new Map<string, { orders: number; spend: number; lastDate: string; dates: string[] }>();
-  let currentCustomer = '';
-  for (const r of rows) {
-    // Detect customer name from rows (ambassador sales format: customer name appears on voucher-level rows)
-    if (r.voucherNo && r.date) {
-      // This is likely a voucher-header row with customer name in productName field
-      const possibleCustomer = r.productName || r.customerName;
-      if (possibleCustomer && !r.productCode) {
-        currentCustomer = possibleCustomer;
-      }
+  // --- Customers ---
+  const customerMap = new Map<string, { orders: number; spend: number; lastDate: string; vouchers: Set<string> }>();
+  for (const t of transactions) {
+    const name = t.customerName;
+    const ex = customerMap.get(name) || { orders: 0, spend: 0, lastDate: '', vouchers: new Set() };
+    if (!ex.vouchers.has(t.voucherNo)) {
+      ex.orders += 1;
+      ex.vouchers.add(t.voucherNo);
     }
-    
-    const custName = currentCustomer || 'Walk-in';
-    const existing = customerMap.get(custName) || { orders: 0, spend: 0, lastDate: '', dates: [] };
-    existing.spend += r.netAmt;
-    if (r.voucherNo) existing.orders += 1;
-    if (r.date > existing.lastDate) existing.lastDate = r.date;
-    if (r.date) existing.dates.push(r.date);
-    customerMap.set(custName, existing);
+    ex.spend += t.totalNet;
+    if (t.date > ex.lastDate) ex.lastDate = t.date;
+    customerMap.set(name, ex);
   }
 
   const customers = [...customerMap.entries()]
-    .filter(([name]) => name !== 'Walk-in' && name !== 'CASH PARTY')
     .sort((a, b) => b[1].spend - a[1].spend)
-    .slice(0, 20)
+    .slice(0, 30)
     .map(([name, data], i) => {
       const avgOV = data.orders > 0 ? Math.round(data.spend / data.orders) : 0;
-      const segment = data.spend > 30000 ? 'VIP' :
-                      data.spend > 15000 ? 'Loyal' :
-                      data.spend > 8000 ? 'Regular' :
-                      data.orders <= 1 ? 'Lost' : 'At-Risk';
+      const isWalkIn = name === 'Cash Party (Walk-in)';
+      const segment = isWalkIn ? 'Regular' :
+        data.spend > 30000 ? 'VIP' :
+        data.spend > 15000 ? 'Loyal' :
+        data.spend > 8000 ? 'Regular' :
+        data.orders <= 1 ? 'Lost' : 'At-Risk';
       const rfmScore = Math.min(100, Math.round(data.spend / 500 + data.orders * 5));
       return {
         id: `C${String(i + 1).padStart(3, '0')}`,
@@ -205,42 +301,44 @@ function analyzeData(rows: ParsedRow[]) {
       };
     });
 
-  // Monthly sales
+  // --- Monthly sales ---
   const monthMap = new Map<string, { revenue: number; orders: number }>();
-  for (const r of rows) {
-    if (!r.date) continue;
-    const parts = r.date.split(/[-/]/);
-    let monthKey = '';
-    if (parts.length >= 2) {
-      const year = parts.find(p => p.length === 4) || parts[0];
-      const month = parts.length === 3 ? (parts[0].length === 4 ? parts[1] : (parseInt(parts[0]) > 12 ? parts[0] : parts[1])) : parts[1];
-      const monthNum = parseInt(month);
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      if (monthNum >= 1 && monthNum <= 12) {
-        monthKey = `${months[monthNum - 1]} ${year}`;
-      }
-    }
-    if (!monthKey) continue;
-    const existing = monthMap.get(monthKey) || { revenue: 0, orders: 0 };
-    existing.revenue += r.netAmt;
-    existing.orders += 1;
-    monthMap.set(monthKey, existing);
+  for (const t of transactions) {
+    if (!t.date) continue;
+    const parts = t.date.split('-');
+    if (parts.length < 3) continue;
+    const year = parts[0];
+    const monthNum = parseInt(parts[1]);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (monthNum < 1 || monthNum > 12) continue;
+    const monthKey = `${months[monthNum - 1]} ${year}`;
+    const ex = monthMap.get(monthKey) || { revenue: 0, orders: 0 };
+    ex.revenue += t.totalNet;
+    ex.orders += 1;
+    monthMap.set(monthKey, ex);
   }
 
-  const monthlySalesData = [...monthMap.entries()].map(([month, data]) => ({
-    month,
-    revenue: Math.round(data.revenue),
-    orders: data.orders,
-    avgOrder: data.orders > 0 ? Math.round(data.revenue / data.orders) : 0,
-  }));
+  const monthlySalesData = [...monthMap.entries()]
+    .sort((a, b) => {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const [am, ay] = a[0].split(' ');
+      const [bm, by] = b[0].split(' ');
+      return (parseInt(ay) * 12 + months.indexOf(am)) - (parseInt(by) * 12 + months.indexOf(bm));
+    })
+    .map(([month, data]) => ({
+      month,
+      revenue: Math.round(data.revenue),
+      orders: data.orders,
+      avgOrder: data.orders > 0 ? Math.round(data.revenue / data.orders) : 0,
+    }));
 
-  // Category breakdown
+  // --- Category breakdown ---
   const catMap = new Map<string, { count: number; revenue: number }>();
   for (const p of products) {
-    const existing = catMap.get(p.category) || { count: 0, revenue: 0 };
-    existing.count += 1;
-    existing.revenue += p.totalRevenue;
-    catMap.set(p.category, existing);
+    const ex = catMap.get(p.category) || { count: 0, revenue: 0 };
+    ex.count += 1;
+    ex.revenue += p.totalRevenue;
+    catMap.set(p.category, ex);
   }
   const totalCatRev = [...catMap.values()].reduce((s, c) => s + c.revenue, 0);
   const categoryBreakdown = [...catMap.entries()].map(([name, data]) => ({
@@ -249,23 +347,25 @@ function analyzeData(rows: ParsedRow[]) {
     revenue: data.revenue,
   }));
 
-  // Payment methods
+  // --- Payment methods (normalized) ---
   const pmMap = new Map<string, { count: number; amount: number }>();
-  for (const r of rows) {
-    const mode = r.transactionMode || 'Other';
-    const existing = pmMap.get(mode) || { count: 0, amount: 0 };
-    existing.count += 1;
-    existing.amount += r.netAmt;
-    pmMap.set(mode, existing);
+  for (const t of transactions) {
+    const mode = t.transactionMode || 'Other';
+    const ex = pmMap.get(mode) || { count: 0, amount: 0 };
+    ex.count += 1;
+    ex.amount += t.totalNet;
+    pmMap.set(mode, ex);
   }
   const totalPmAmount = [...pmMap.values()].reduce((s, p) => s + p.amount, 0);
-  const paymentMethods = [...pmMap.entries()].map(([method, data]) => ({
-    method,
-    percentage: totalPmAmount > 0 ? Math.round((data.amount / totalPmAmount) * 100) : 0,
-    amount: Math.round(data.amount),
-  }));
+  const paymentMethods = [...pmMap.entries()]
+    .sort((a, b) => b[1].amount - a[1].amount)
+    .map(([method, data]) => ({
+      method,
+      percentage: totalPmAmount > 0 ? Math.round((data.amount / totalPmAmount) * 100) : 0,
+      amount: Math.round(data.amount),
+    }));
 
-  // Inventory alerts
+  // --- Inventory alerts ---
   const inventoryAlerts = products
     .filter(p => p.stockLevel <= p.reorderPoint)
     .slice(0, 5)
@@ -278,7 +378,7 @@ function analyzeData(rows: ParsedRow[]) {
       severity: (p.stockLevel <= p.reorderPoint * 0.5 ? 'critical' : 'warning') as 'critical' | 'warning',
     }));
 
-  // Forecast (simple trend extrapolation)
+  // --- Forecast ---
   const lastMonthRevenues = monthlySalesData.slice(-3).map(m => m.revenue);
   const avgRecent = lastMonthRevenues.length > 0 ? lastMonthRevenues.reduce((s, v) => s + v, 0) / lastMonthRevenues.length : 300000;
   const forecastData = [
@@ -288,7 +388,7 @@ function analyzeData(rows: ParsedRow[]) {
     { month: 'Forecast +4', predicted: Math.round(avgRecent * 1.1), lower: Math.round(avgRecent * 0.8), upper: Math.round(avgRecent * 1.4) },
   ];
 
-  // RFM segments
+  // --- RFM segments ---
   const segmentCounts = { Champions: 0, Loyal: 0, Potential: 0, 'New Customers': 0, 'At Risk': 0, Lost: 0 };
   for (const c of customers) {
     if (c.segment === 'VIP') segmentCounts.Champions += 1;
@@ -308,7 +408,7 @@ function analyzeData(rows: ParsedRow[]) {
     }).reduce((s, c) => s + c.totalSpend, 0) / count) : 0,
   }));
 
-  // Cohort data (simplified)
+  // --- Cohort data ---
   const cohortData = monthlySalesData.slice(0, 7).map((m, i) => ({
     cohort: m.month,
     m0: 100,
@@ -320,11 +420,11 @@ function analyzeData(rows: ParsedRow[]) {
     m6: i < 1 ? Math.round(15 + Math.random() * 8) : null,
   }));
 
-  // KPIs
-  const orderCount = rows.length;
+  // --- KPIs ---
+  const orderCount = transactions.length;
   const avgOrderValue = orderCount > 0 ? Math.round(totalRevenue / orderCount) : 0;
   const uniqueCustomers = customerMap.size;
-  const grossMargin = totalGross > 0 ? Math.round((1 - (totalRevenue - totalVat) / totalGross) * 1000) / 10 : 30;
+  const grossMargin = totalGross > 0 ? Math.round(((totalGross - totalDiscount) / totalGross) * 1000) / 10 : 30;
 
   const formatNPR = (val: number) => {
     if (val >= 100000) return `रू ${(val / 100000).toFixed(2)} L`;
@@ -332,19 +432,21 @@ function analyzeData(rows: ParsedRow[]) {
   };
 
   const kpiData = [
-    { label: 'Total Revenue', value: formatNPR(totalRevenue), change: 12.4, trend: 'up' as const, icon: 'revenue' },
-    { label: 'Orders Processed', value: orderCount.toLocaleString(), change: 8.2, trend: 'up' as const, icon: 'orders' },
-    { label: 'Avg. Order Value', value: formatNPR(avgOrderValue), change: -3.1, trend: 'down' as const, icon: 'aov' },
-    { label: 'Active Customers', value: String(uniqueCustomers), change: 15.7, trend: 'up' as const, icon: 'customers' },
-    { label: 'Inventory Turnover', value: `${(totalQuantity / Math.max(1, products.length * 20)).toFixed(1)}x`, change: 6.3, trend: 'up' as const, icon: 'inventory' },
-    { label: 'Gross Margin', value: `${grossMargin}%`, change: 1.8, trend: 'up' as const, icon: 'margin' },
+    { label: 'Total Revenue', value: formatNPR(totalRevenue), change: 0, trend: 'up' as const, icon: 'revenue' },
+    { label: 'Orders Processed', value: orderCount.toLocaleString(), change: 0, trend: 'up' as const, icon: 'orders' },
+    { label: 'Avg. Order Value', value: formatNPR(avgOrderValue), change: 0, trend: 'up' as const, icon: 'aov' },
+    { label: 'Active Customers', value: String(uniqueCustomers), change: 0, trend: 'up' as const, icon: 'customers' },
+    { label: 'Inventory Turnover', value: `${(totalQuantity / Math.max(1, products.length * 20)).toFixed(1)}x`, change: 0, trend: 'up' as const, icon: 'inventory' },
+    { label: 'Gross Margin', value: `${grossMargin}%`, change: 0, trend: 'up' as const, icon: 'margin' },
   ];
 
   return {
     success: true,
     summary: {
-      rowCount: rows.length,
-      columnCount: Object.keys(rows[0] || {}).length,
+      rowCount: allProducts.length,
+      transactionCount: transactions.length,
+      productCount: products.length,
+      customerCount: uniqueCustomers,
       startDate,
       endDate,
       totalRevenue: Math.round(totalRevenue),
@@ -362,14 +464,6 @@ function analyzeData(rows: ParsedRow[]) {
     rfmSegments,
     cohortData,
   };
-}
-
-function categorizeProduct(name: string): string {
-  const lower = (name || '').toLowerCase();
-  if (lower.includes('pant') || lower.includes('jeans') || lower.includes('trouser') || lower.includes('skirt')) return 'Bottoms';
-  if (lower.includes('shoe') || lower.includes('slipper') || lower.includes('sandal') || lower.includes('boot')) return 'Footwear';
-  if (lower.includes('belt') || lower.includes('bag') || lower.includes('scarf') || lower.includes('clutch') || lower.includes('accessori')) return 'Accessories';
-  return 'Tops';
 }
 
 Deno.serve(async (req) => {
@@ -394,7 +488,6 @@ Deno.serve(async (req) => {
       fileName = file.name;
       fileBuffer = await file.arrayBuffer();
     } else {
-      // Raw body
       fileBuffer = await req.arrayBuffer();
     }
 
@@ -412,32 +505,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Find header row (first row with multiple non-empty cells)
+    // Find header row (first row with many non-empty cells including key headers)
     let headerIdx = 0;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      const nonEmpty = (rawData[i] || []).filter(c => c !== null && c !== undefined && String(c).trim() !== '').length;
+      const row = rawData[i] || [];
+      const nonEmpty = row.filter((c: any) => c !== null && c !== undefined && String(c).trim() !== '').length;
       if (nonEmpty >= 5) {
-        headerIdx = i;
-        break;
+        const joined = row.map((c: any) => String(c || '').toLowerCase()).join(' ');
+        if (joined.includes('date') || joined.includes('voucher') || joined.includes('product')) {
+          headerIdx = i;
+          break;
+        }
       }
     }
 
     const headers = rawData[headerIdx].map((h: any) => String(h || ''));
     const dataRows = rawData.slice(headerIdx + 1);
 
-    console.log(`Found ${dataRows.length} data rows with headers: ${headers.join(', ')}`);
+    console.log(`Headers at row ${headerIdx}: ${headers.join(', ')}`);
+    console.log(`Data rows: ${dataRows.length}`);
 
-    const parsedRows = parseRows(dataRows, headers);
-    console.log(`Parsed ${parsedRows.length} valid transaction rows`);
+    const transactions = parseTransactions(dataRows, headers);
+    console.log(`Parsed ${transactions.length} transactions with ${transactions.reduce((s, t) => s + t.products.length, 0)} product lines`);
 
-    if (parsedRows.length === 0) {
+    if (transactions.length === 0) {
       return new Response(
-        JSON.stringify({ success: false, error: 'No valid transaction rows found in the file' }),
+        JSON.stringify({ success: false, error: 'No valid transactions found. Ensure the file has date, voucher, and product rows.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const result = analyzeData(parsedRows);
+    const result = analyzeData(transactions);
 
     return new Response(
       JSON.stringify(result),
