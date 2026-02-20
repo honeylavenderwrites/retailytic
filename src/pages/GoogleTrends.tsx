@@ -3,17 +3,23 @@ import { TrendingUp, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+import blazerDressImg from "@/assets/trends/blazer-dress.jpg";
+import maxiDressImg from "@/assets/trends/maxi-dress.jpg";
+import jeansBlouseImg from "@/assets/trends/jeans-blouse.jpg";
+import pantsuitImg from "@/assets/trends/pantsuit.jpg";
+import midiSkirtImg from "@/assets/trends/midi-skirt.jpg";
+
 const WOMEN_CLOTHING_TOPICS = [
-  { label: "Saree", query: "saree" },
-  { label: "Kurti", query: "kurti" },
-  { label: "Lehenga", query: "lehenga" },
-  { label: "Salwar Kameez", query: "salwar kameez" },
-  { label: "Women Dress", query: "women dress" },
+  { label: "Blazer Dress", query: "blazer dress", image: blazerDressImg, type: "Formal" },
+  { label: "Maxi Dress", query: "maxi dress", image: maxiDressImg, type: "Casual" },
+  { label: "Jeans & Blouse", query: "women jeans blouse", image: jeansBlouseImg, type: "Casual" },
+  { label: "Pantsuit", query: "women pantsuit", image: pantsuitImg, type: "Formal" },
+  { label: "Midi Skirt", query: "midi skirt outfit", image: midiSkirtImg, type: "Casual" },
 ];
 
 const EMBED_BASE = "https://trends.google.com/trends/embed/explore";
 
-function buildTrendUrl(queries: string[], geo = "NP", type: "TIMESERIES" | "GEO_MAP" | "RELATED_QUERIES" = "TIMESERIES") {
+function buildTrendUrl(queries: string[], geo = "", type: "TIMESERIES" | "GEO_MAP" | "RELATED_QUERIES" = "TIMESERIES") {
   const comparisonItem = queries.map(q => ({
     keyword: q,
     geo,
@@ -22,16 +28,10 @@ function buildTrendUrl(queries: string[], geo = "NP", type: "TIMESERIES" | "GEO_
   const req = JSON.stringify({ comparisonItem, category: 0, property: "" });
   const params = new URLSearchParams({
     req,
-    tz: "-345",
-    eq: `geo=${geo}&q=${queries.join(",")}&hl=en`,
+    tz: "0",
+    eq: `q=${queries.join(",")}&hl=en`,
   });
-  if (type === "TIMESERIES") {
-    return `${EMBED_BASE}/TIMESERIES?${params.toString()}`;
-  }
-  if (type === "GEO_MAP") {
-    return `${EMBED_BASE}/GEO_MAP?${params.toString()}`;
-  }
-  return `${EMBED_BASE}/RELATED_QUERIES?${params.toString()}`;
+  return `${EMBED_BASE}/${type}?${params.toString()}`;
 }
 
 export default function GoogleTrends() {
@@ -60,33 +60,55 @@ export default function GoogleTrends() {
     <div className="animate-slide-in space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Google Trends — Women's Clothing</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Google Trends — Western Women's Clothing</h1>
         <p className="text-sm text-muted-foreground">
-          Real Google Trends data for women's clothing items in Nepal
+          Real Google Trends data for western casual &amp; formal women's outfits
         </p>
       </div>
 
-      {/* Controls */}
-      <div className="rounded-lg border bg-card p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-card-foreground">Select Categories (max 5)</h3>
-        <div className="flex flex-wrap gap-2">
-          {WOMEN_CLOTHING_TOPICS.map(t => (
+      {/* Category Cards with Images */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+        {WOMEN_CLOTHING_TOPICS.map(t => {
+          const isActive = activeQueries.includes(t.query);
+          return (
             <button
               key={t.query}
               onClick={() => handlePreset(t.query)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeQueries.includes(t.query)
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              className={`group relative rounded-xl overflow-hidden border-2 transition-all ${
+                isActive
+                  ? "border-primary ring-2 ring-primary/20"
+                  : "border-border hover:border-muted-foreground/40"
               }`}
             >
-              {t.label}
+              <img
+                src={t.image}
+                alt={t.label}
+                className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-2">
+                <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold mb-1 ${
+                  t.type === "Formal" ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground"
+                }`}>
+                  {t.type}
+                </span>
+                <p className="text-xs font-semibold text-white">{t.label}</p>
+              </div>
+              {isActive && (
+                <div className="absolute top-2 right-2 h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                  <span className="text-primary-foreground text-xs">✓</span>
+                </div>
+              )}
             </button>
-          ))}
-        </div>
+          );
+        })}
+      </div>
+
+      {/* Custom keyword input */}
+      <div className="rounded-lg border bg-card p-4">
         <div className="flex gap-2">
           <Input
-            placeholder="Add custom keyword (e.g. 'anarkali suit')"
+            placeholder="Add custom keyword (e.g. 'wrap dress')"
             value={customQuery}
             onChange={e => setCustomQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleAddCustom()}
@@ -98,7 +120,7 @@ export default function GoogleTrends() {
           </Button>
         </div>
         {activeQueries.length > 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             Tracking: <strong>{activeQueries.join(", ")}</strong>
           </p>
         )}
@@ -109,16 +131,15 @@ export default function GoogleTrends() {
           <TrendingUp className="mb-4 h-12 w-12 text-muted-foreground/40" />
           <h3 className="text-lg font-semibold text-card-foreground">No Categories Selected</h3>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Select at least one women's clothing category above to view real Google Trends data.
+            Select at least one clothing category above to view real Google Trends data.
           </p>
         </div>
       ) : (
         <>
-          {/* Interest Over Time */}
           <div className="rounded-lg border bg-card p-5">
             <h3 className="mb-3 text-sm font-semibold text-card-foreground">Interest Over Time (Past 12 Months)</h3>
             <iframe
-              src={buildTrendUrl(activeQueries, "NP", "TIMESERIES")}
+              src={buildTrendUrl(activeQueries, "", "TIMESERIES")}
               className="w-full rounded-md border-0"
               style={{ height: 400 }}
               title="Google Trends - Interest Over Time"
@@ -126,11 +147,10 @@ export default function GoogleTrends() {
             />
           </div>
 
-          {/* Interest by Region */}
           <div className="rounded-lg border bg-card p-5">
             <h3 className="mb-3 text-sm font-semibold text-card-foreground">Interest by Region</h3>
             <iframe
-              src={buildTrendUrl(activeQueries, "NP", "GEO_MAP")}
+              src={buildTrendUrl(activeQueries, "", "GEO_MAP")}
               className="w-full rounded-md border-0"
               style={{ height: 400 }}
               title="Google Trends - Interest by Region"
@@ -138,11 +158,10 @@ export default function GoogleTrends() {
             />
           </div>
 
-          {/* Related Queries */}
           <div className="rounded-lg border bg-card p-5">
             <h3 className="mb-3 text-sm font-semibold text-card-foreground">Related Queries</h3>
             <iframe
-              src={buildTrendUrl(activeQueries, "NP", "RELATED_QUERIES")}
+              src={buildTrendUrl(activeQueries, "", "RELATED_QUERIES")}
               className="w-full rounded-md border-0"
               style={{ height: 500 }}
               title="Google Trends - Related Queries"
@@ -150,10 +169,9 @@ export default function GoogleTrends() {
             />
           </div>
 
-          {/* Direct Link */}
           <div className="rounded-lg border bg-card p-4 text-center">
             <a
-              href={`https://trends.google.com/trends/explore?geo=NP&q=${activeQueries.join(",")}&hl=en`}
+              href={`https://trends.google.com/trends/explore?q=${activeQueries.join(",")}&hl=en`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm font-medium text-primary hover:underline"
