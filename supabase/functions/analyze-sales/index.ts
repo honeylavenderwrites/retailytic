@@ -58,17 +58,14 @@ function normalizeColumnName(name: string): string {
 function findColumnIndex(headers: string[], possibleNames: string[]): number {
   const normalizedHeaders = headers.map(h => h ? normalizeColumnName(String(h)) : '');
   const normalizedNames = possibleNames.map(normalizeColumnName);
-  // Exact match
   for (const name of normalizedNames) {
     const idx = normalizedHeaders.indexOf(name);
     if (idx !== -1) return idx;
   }
-  // Starts with
   for (const name of normalizedNames) {
     const idx = normalizedHeaders.findIndex(h => h.startsWith(name));
     if (idx !== -1) return idx;
   }
-  // Contains
   for (const name of normalizedNames) {
     const idx = normalizedHeaders.findIndex(h => h.includes(name));
     if (idx !== -1) return idx;
@@ -80,14 +77,13 @@ function normalizePaymentMethod(method: string): string {
   if (!method) return 'Other';
   const m = method.toLowerCase().replace(/[^a-z\s]/g, '').trim();
   if (m === 'cash') return 'Cash';
-  if (m.includes('fonepay') || m.includes('fone pay')) return 'FonePay';
-  if (m.includes('credit') && m.includes('card') || m === 'creditcard') return 'Credit Card';
-  if (m.includes('debit') && m.includes('card') || m === 'debitcard') return 'Debit Card';
+  if (m.includes('fonepay') || m.includes('fone pay') || m.includes('fonepy') || m === 'fonepay') return 'FonePay';
+  if ((m.includes('credit') && m.includes('card')) || m === 'creditcard') return 'Credit Card';
+  if ((m.includes('debit') && m.includes('card')) || m === 'debitcard') return 'Debit Card';
   if (m.includes('esewa') || m.includes('e-sewa')) return 'eSewa';
   if (m.includes('khalti')) return 'Khalti';
   if (m.includes('cheque') || m.includes('check')) return 'Cheque';
   if (m.includes('bank') || m.includes('transfer')) return 'Bank Transfer';
-  // Title case the original
   return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
 }
 
@@ -96,7 +92,6 @@ function normalizeCustomerName(name: string): string {
   const trimmed = name.trim();
   const upper = trimmed.toUpperCase();
   if (upper === 'CASH PARTY' || upper === 'CASHPARTY' || upper === 'CASH') return 'Cash Party (Walk-in)';
-  // Title case
   return trimmed.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
@@ -108,10 +103,8 @@ function parseDate(dateVal: any): string {
     return '';
   }
   const s = String(dateVal).trim();
-  // MM-DD-YYYY format
   const mdy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
   if (mdy) return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
-  // YYYY-MM-DD
   const ymd = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
   return s;
@@ -161,7 +154,7 @@ function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
     if (!row || row.length === 0) continue;
 
     const nonEmpty = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '').length;
-    if (nonEmpty < 2) continue; // skip empty/separator rows
+    if (nonEmpty < 2) continue;
 
     const dateVal = col.date !== -1 ? row[col.date] : null;
     const voucherVal = getVal(row, col.voucherNo);
@@ -169,13 +162,10 @@ function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
     const productCodeVal = getVal(row, col.productCode);
     const dateStr = parseDate(dateVal);
 
-    // Header row: has date + voucher, "product name" col actually contains customer name, no product code
     const isHeaderRow = !!(dateStr && voucherVal && productNameVal && !productCodeVal);
-    // Detail row: no date, no voucher, has product name + product code
     const isDetailRow = !dateStr && !voucherVal && !!productNameVal && !!productCodeVal;
 
     if (isHeaderRow) {
-      // Save previous transaction
       if (currentTxn) transactions.push(currentTxn);
 
       currentTxn = {
@@ -205,16 +195,67 @@ function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
       });
     }
   }
-  // Don't forget the last transaction
   if (currentTxn) transactions.push(currentTxn);
 
   return transactions;
 }
 
+// --- Market Basket Analysis ---
+
+function computeMarketBasketRules(transactions: Transaction[]) {
+  // Only use multi-product transactions
+  const multiProductTxns = transactions.filter(t => t.products.length >= 2);
+  const totalTxns = multiProductTxns.length;
+  if (totalTxns < 3) return [];
+
+  // Count individual item frequencies and pair frequencies
+  const itemFreq = new Map<string, number>();
+  const pairFreq = new Map<string, number>();
+
+  for (const txn of multiProductTxns) {
+    const items = [...new Set(txn.products.map(p => p.productName))];
+    for (const item of items) {
+      itemFreq.set(item, (itemFreq.get(item) || 0) + 1);
+    }
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const pair = [items[i], items[j]].sort().join('|||');
+        pairFreq.set(pair, (pairFreq.get(pair) || 0) + 1);
+      }
+    }
+  }
+
+  // Generate rules with support >= 2 occurrences
+  const rules: { antecedent: string; consequent: string; confidence: number; support: number; lift: number }[] = [];
+
+  for (const [pair, count] of pairFreq.entries()) {
+    if (count < 2) continue;
+    const [a, b] = pair.split('|||');
+    const freqA = itemFreq.get(a) || 1;
+    const freqB = itemFreq.get(b) || 1;
+    const support = count / totalTxns;
+    
+    // A -> B
+    const confAB = count / freqA;
+    const liftAB = confAB / (freqB / totalTxns);
+    if (confAB >= 0.2) {
+      rules.push({ antecedent: a, consequent: b, confidence: Math.round(confAB * 100) / 100, support: Math.round(support * 100) / 100, lift: Math.round(liftAB * 10) / 10 });
+    }
+    
+    // B -> A
+    const confBA = count / freqB;
+    const liftBA = confBA / (freqA / totalTxns);
+    if (confBA >= 0.2) {
+      rules.push({ antecedent: b, consequent: a, confidence: Math.round(confBA * 100) / 100, support: Math.round(support * 100) / 100, lift: Math.round(liftBA * 10) / 10 });
+    }
+  }
+
+  return rules.sort((a, b) => b.lift - a.lift).slice(0, 8);
+}
+
 // --- Analysis ---
 
 function analyzeData(transactions: Transaction[]) {
-  // Flatten for totals
   const allProducts = transactions.flatMap(t => t.products.map(p => ({ ...p, customer: t.customerName, date: t.date, mode: t.transactionMode })));
 
   const totalRevenue = allProducts.reduce((s, p) => s + p.netAmt, 0);
@@ -247,13 +288,14 @@ function analyzeData(transactions: Transaction[]) {
   const products = sortedProducts.map(([code, p]) => {
     cumulativeRev += p.revenue;
     const abcClass = (cumulativeRev / totalProductRevenue) <= 0.7 ? 'A' : (cumulativeRev / totalProductRevenue) <= 0.9 ? 'B' : 'C';
+    const profitMargin = p.gross > 0 ? (p.gross - p.discount) / p.gross : 0.3;
     return {
       productCode: code,
       productName: p.name,
       category: categorizeProduct(p.name),
       totalQuantitySold: p.qty,
       totalRevenue: Math.round(p.revenue),
-      totalProfit: Math.round(p.revenue * 0.3),
+      totalProfit: Math.round(p.revenue * profitMargin),
       avgPrice: p.qty > 0 ? Math.round(p.revenue / p.qty) : 0,
       stockLevel: Math.max(5, Math.round(Math.random() * 50)),
       reorderPoint: Math.max(3, Math.round(Math.random() * 20)),
@@ -262,31 +304,58 @@ function analyzeData(transactions: Transaction[]) {
   });
 
   // --- Customers ---
-  const customerMap = new Map<string, { orders: number; spend: number; lastDate: string; vouchers: Set<string> }>();
+  const customerMap = new Map<string, { orders: number; spend: number; lastDate: string; vouchers: Set<string>; paymentModes: Map<string, number> }>();
   for (const t of transactions) {
     const name = t.customerName;
-    const ex = customerMap.get(name) || { orders: 0, spend: 0, lastDate: '', vouchers: new Set() };
+    const ex = customerMap.get(name) || { orders: 0, spend: 0, lastDate: '', vouchers: new Set(), paymentModes: new Map() };
     if (!ex.vouchers.has(t.voucherNo)) {
       ex.orders += 1;
       ex.vouchers.add(t.voucherNo);
     }
     ex.spend += t.totalNet;
     if (t.date > ex.lastDate) ex.lastDate = t.date;
+    // Track payment mode per customer
+    const modeCount = ex.paymentModes.get(t.transactionMode) || 0;
+    ex.paymentModes.set(t.transactionMode, modeCount + 1);
     customerMap.set(name, ex);
   }
 
+  // Compute recency for RFM
+  const latestDate = endDate || '2026-02-10';
+  const latestMs = new Date(latestDate).getTime();
+
   const customers = [...customerMap.entries()]
     .sort((a, b) => b[1].spend - a[1].spend)
-    .slice(0, 30)
+    .slice(0, 50)
     .map(([name, data], i) => {
       const avgOV = data.orders > 0 ? Math.round(data.spend / data.orders) : 0;
       const isWalkIn = name === 'Cash Party (Walk-in)';
+      
+      // Better RFM scoring
+      const daysSinceLast = data.lastDate ? Math.max(1, Math.round((latestMs - new Date(data.lastDate).getTime()) / 86400000)) : 999;
+      const recencyScore = daysSinceLast <= 7 ? 5 : daysSinceLast <= 14 ? 4 : daysSinceLast <= 30 ? 3 : daysSinceLast <= 60 ? 2 : 1;
+      const frequencyScore = data.orders >= 10 ? 5 : data.orders >= 6 ? 4 : data.orders >= 3 ? 3 : data.orders >= 2 ? 2 : 1;
+      const monetaryScore = data.spend >= 30000 ? 5 : data.spend >= 15000 ? 4 : data.spend >= 8000 ? 3 : data.spend >= 3000 ? 2 : 1;
+      const rfmScore = Math.round((recencyScore + frequencyScore + monetaryScore) / 15 * 100);
+      
       const segment = isWalkIn ? 'Regular' :
-        data.spend > 30000 ? 'VIP' :
-        data.spend > 15000 ? 'Loyal' :
-        data.spend > 8000 ? 'Regular' :
-        data.orders <= 1 ? 'Lost' : 'At-Risk';
-      const rfmScore = Math.min(100, Math.round(data.spend / 500 + data.orders * 5));
+        (recencyScore >= 4 && frequencyScore >= 4 && monetaryScore >= 4) ? 'VIP' :
+        (recencyScore >= 3 && frequencyScore >= 3) ? 'Loyal' :
+        (recencyScore >= 3) ? 'Regular' :
+        (recencyScore <= 2 && frequencyScore >= 2) ? 'At-Risk' : 'Lost';
+      
+      const churnRisk = segment === 'VIP' ? 0.05 : segment === 'Loyal' ? 0.15 : segment === 'Regular' ? 0.3 : segment === 'At-Risk' ? 0.6 : 0.85;
+
+      // Get preferred payment method
+      let preferredPayment = 'Cash';
+      let maxModeCount = 0;
+      for (const [mode, count] of data.paymentModes.entries()) {
+        if (count > maxModeCount) {
+          maxModeCount = count;
+          preferredPayment = mode;
+        }
+      }
+
       return {
         id: `C${String(i + 1).padStart(3, '0')}`,
         name,
@@ -296,13 +365,14 @@ function analyzeData(transactions: Transaction[]) {
         lastPurchase: data.lastDate,
         segment: segment as any,
         rfmScore,
-        clv: Math.round(data.spend * 3),
-        churnRisk: segment === 'VIP' ? 0.05 : segment === 'Loyal' ? 0.15 : segment === 'Regular' ? 0.3 : segment === 'At-Risk' ? 0.6 : 0.85,
+        clv: Math.round(data.spend * (data.orders > 1 ? 3 : 1.5)),
+        churnRisk,
+        preferredPayment,
       };
     });
 
   // --- Monthly sales ---
-  const monthMap = new Map<string, { revenue: number; orders: number }>();
+  const monthMap = new Map<string, { revenue: number; orders: number; discount: number; qty: number }>();
   for (const t of transactions) {
     if (!t.date) continue;
     const parts = t.date.split('-');
@@ -312,9 +382,11 @@ function analyzeData(transactions: Transaction[]) {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     if (monthNum < 1 || monthNum > 12) continue;
     const monthKey = `${months[monthNum - 1]} ${year}`;
-    const ex = monthMap.get(monthKey) || { revenue: 0, orders: 0 };
+    const ex = monthMap.get(monthKey) || { revenue: 0, orders: 0, discount: 0, qty: 0 };
     ex.revenue += t.totalNet;
     ex.orders += 1;
+    ex.discount += t.totalDiscount;
+    ex.qty += t.totalQty;
     monthMap.set(monthKey, ex);
   }
 
@@ -333,11 +405,12 @@ function analyzeData(transactions: Transaction[]) {
     }));
 
   // --- Category breakdown ---
-  const catMap = new Map<string, { count: number; revenue: number }>();
+  const catMap = new Map<string, { count: number; revenue: number; qty: number }>();
   for (const p of products) {
-    const ex = catMap.get(p.category) || { count: 0, revenue: 0 };
+    const ex = catMap.get(p.category) || { count: 0, revenue: 0, qty: 0 };
     ex.count += 1;
     ex.revenue += p.totalRevenue;
+    ex.qty += p.totalQuantitySold;
     catMap.set(p.category, ex);
   }
   const totalCatRev = [...catMap.values()].reduce((s, c) => s + c.revenue, 0);
@@ -345,9 +418,10 @@ function analyzeData(transactions: Transaction[]) {
     name,
     value: totalCatRev > 0 ? Math.round((data.revenue / totalCatRev) * 100) : 0,
     revenue: data.revenue,
+    quantity: data.qty,
   }));
 
-  // --- Payment methods (normalized) ---
+  // --- Payment methods ---
   const pmMap = new Map<string, { count: number; amount: number }>();
   for (const t of transactions) {
     const mode = t.transactionMode || 'Other';
@@ -363,6 +437,7 @@ function analyzeData(transactions: Transaction[]) {
       method,
       percentage: totalPmAmount > 0 ? Math.round((data.amount / totalPmAmount) * 100) : 0,
       amount: Math.round(data.amount),
+      txnCount: data.count,
     }));
 
   // --- Inventory alerts ---
@@ -381,31 +456,39 @@ function analyzeData(transactions: Transaction[]) {
   // --- Forecast ---
   const lastMonthRevenues = monthlySalesData.slice(-3).map(m => m.revenue);
   const avgRecent = lastMonthRevenues.length > 0 ? lastMonthRevenues.reduce((s, v) => s + v, 0) / lastMonthRevenues.length : 300000;
-  const forecastData = [
-    { month: 'Forecast +1', predicted: Math.round(avgRecent * 1.02), lower: Math.round(avgRecent * 0.88), upper: Math.round(avgRecent * 1.16) },
-    { month: 'Forecast +2', predicted: Math.round(avgRecent * 1.05), lower: Math.round(avgRecent * 0.85), upper: Math.round(avgRecent * 1.25) },
-    { month: 'Forecast +3', predicted: Math.round(avgRecent * 1.08), lower: Math.round(avgRecent * 0.82), upper: Math.round(avgRecent * 1.34) },
-    { month: 'Forecast +4', predicted: Math.round(avgRecent * 1.1), lower: Math.round(avgRecent * 0.8), upper: Math.round(avgRecent * 1.4) },
-  ];
+  
+  // Compute trend direction from last few months
+  let trendSlope = 0;
+  if (lastMonthRevenues.length >= 2) {
+    trendSlope = (lastMonthRevenues[lastMonthRevenues.length - 1] - lastMonthRevenues[0]) / lastMonthRevenues.length;
+  }
+  
+  const forecastData = [1, 2, 3, 4].map(i => ({
+    month: `Forecast +${i}`,
+    predicted: Math.round(avgRecent + trendSlope * i),
+    lower: Math.round((avgRecent + trendSlope * i) * (1 - 0.1 * i)),
+    upper: Math.round((avgRecent + trendSlope * i) * (1 + 0.1 * i)),
+  }));
 
   // --- RFM segments ---
-  const segmentCounts = { Champions: 0, Loyal: 0, Potential: 0, 'New Customers': 0, 'At Risk': 0, Lost: 0 };
+  const segmentCounts: Record<string, { count: number; totalSpend: number }> = {
+    Champions: { count: 0, totalSpend: 0 },
+    Loyal: { count: 0, totalSpend: 0 },
+    Potential: { count: 0, totalSpend: 0 },
+    'At Risk': { count: 0, totalSpend: 0 },
+    Lost: { count: 0, totalSpend: 0 },
+  };
   for (const c of customers) {
-    if (c.segment === 'VIP') segmentCounts.Champions += 1;
-    else if (c.segment === 'Loyal') segmentCounts.Loyal += 1;
-    else if (c.segment === 'Regular') segmentCounts.Potential += 1;
-    else if (c.segment === 'At-Risk') segmentCounts['At Risk'] += 1;
-    else segmentCounts.Lost += 1;
+    const key = c.segment === 'VIP' ? 'Champions' : c.segment === 'Loyal' ? 'Loyal' : c.segment === 'Regular' ? 'Potential' : c.segment === 'At-Risk' ? 'At Risk' : 'Lost';
+    segmentCounts[key].count += 1;
+    segmentCounts[key].totalSpend += c.totalSpend;
   }
   const totalCust = Math.max(1, customers.length);
-  const rfmSegments = Object.entries(segmentCounts).map(([segment, count]) => ({
+  const rfmSegments = Object.entries(segmentCounts).map(([segment, data]) => ({
     segment,
-    count,
-    percentage: Math.round((count / totalCust) * 1000) / 10,
-    avgSpend: count > 0 ? Math.round(customers.filter(c => {
-      const map: Record<string, string> = { Champions: 'VIP', Loyal: 'Loyal', Potential: 'Regular', 'New Customers': 'Regular', 'At Risk': 'At-Risk', Lost: 'Lost' };
-      return c.segment === map[segment];
-    }).reduce((s, c) => s + c.totalSpend, 0) / count) : 0,
+    count: data.count,
+    percentage: Math.round((data.count / totalCust) * 1000) / 10,
+    avgSpend: data.count > 0 ? Math.round(data.totalSpend / data.count) : 0,
   }));
 
   // --- Cohort data ---
@@ -420,11 +503,15 @@ function analyzeData(transactions: Transaction[]) {
     m6: i < 1 ? Math.round(15 + Math.random() * 8) : null,
   }));
 
+  // --- Market Basket Rules ---
+  const marketBasketRules = computeMarketBasketRules(transactions);
+
   // --- KPIs ---
   const orderCount = transactions.length;
   const avgOrderValue = orderCount > 0 ? Math.round(totalRevenue / orderCount) : 0;
   const uniqueCustomers = customerMap.size;
   const grossMargin = totalGross > 0 ? Math.round(((totalGross - totalDiscount) / totalGross) * 1000) / 10 : 30;
+  const avgDiscount = totalGross > 0 ? Math.round((totalDiscount / totalGross) * 1000) / 10 : 0;
 
   const formatNPR = (val: number) => {
     if (val >= 100000) return `रू ${(val / 100000).toFixed(2)} L`;
@@ -436,9 +523,29 @@ function analyzeData(transactions: Transaction[]) {
     { label: 'Orders Processed', value: orderCount.toLocaleString(), change: 0, trend: 'up' as const, icon: 'orders' },
     { label: 'Avg. Order Value', value: formatNPR(avgOrderValue), change: 0, trend: 'up' as const, icon: 'aov' },
     { label: 'Active Customers', value: String(uniqueCustomers), change: 0, trend: 'up' as const, icon: 'customers' },
-    { label: 'Inventory Turnover', value: `${(totalQuantity / Math.max(1, products.length * 20)).toFixed(1)}x`, change: 0, trend: 'up' as const, icon: 'inventory' },
+    { label: 'Avg Discount', value: `${avgDiscount}%`, change: 0, trend: 'down' as const, icon: 'inventory' },
     { label: 'Gross Margin', value: `${grossMargin}%`, change: 0, trend: 'up' as const, icon: 'margin' },
   ];
+
+  // --- Text analysis summaries ---
+  const topProduct = products[0];
+  const topCategory = categoryBreakdown.sort((a, b) => b.revenue - a.revenue)[0];
+  const topPayment = paymentMethods[0];
+  const vipCustomers = customers.filter(c => c.segment === 'VIP');
+  const atRiskCustomers = customers.filter(c => c.segment === 'At-Risk' || c.segment === 'Lost');
+  const bestMonth = [...monthlySalesData].sort((a, b) => b.revenue - a.revenue)[0];
+  const worstMonth = [...monthlySalesData].sort((a, b) => a.revenue - b.revenue)[0];
+
+  const analysisTexts = {
+    revenue: `Total revenue stands at ${formatNPR(totalRevenue)} across ${orderCount} orders from ${startDate} to ${endDate}. The average order value is ${formatNPR(avgOrderValue)}.${bestMonth ? ` Peak revenue was in ${bestMonth.month} (${formatNPR(bestMonth.revenue)}).` : ''}${worstMonth && worstMonth !== bestMonth ? ` Lowest month was ${worstMonth.month} (${formatNPR(worstMonth.revenue)}).` : ''}`,
+    category: topCategory ? `"${topCategory.name}" is the dominant category contributing ${topCategory.value}% of total revenue (${formatNPR(topCategory.revenue)}). ${categoryBreakdown.length} categories identified.` : '',
+    payment: topPayment ? `${topPayment.method} is the most used payment method at ${topPayment.percentage}% (${formatNPR(topPayment.amount)}), used in ${topPayment.txnCount} transactions.${paymentMethods.length > 1 ? ` Second is ${paymentMethods[1].method} at ${paymentMethods[1].percentage}%.` : ''}` : '',
+    customers: `${uniqueCustomers} unique customers identified. ${vipCustomers.length} VIP customers (highest spenders). ${atRiskCustomers.length} customers are At-Risk or Lost and may need re-engagement campaigns. Walk-in (Cash Party) transactions are tracked separately.`,
+    segmentation: `Customer base is segmented using RFM (Recency, Frequency, Monetary) scoring. ${rfmSegments.map(s => `${s.segment}: ${s.count} (${s.percentage}%)`).join(', ')}.`,
+    forecast: `Revenue forecast is based on a ${lastMonthRevenues.length}-month moving average with trend adjustment. ${trendSlope > 0 ? 'Upward trend detected.' : trendSlope < 0 ? 'Downward trend detected — review sales strategy.' : 'Revenue is stable.'}`,
+    basket: marketBasketRules.length > 0 ? `${marketBasketRules.length} association rules found from ${transactions.filter(t => t.products.length >= 2).length} multi-item transactions. Top rule: "${marketBasketRules[0].antecedent} → ${marketBasketRules[0].consequent}" with ${(marketBasketRules[0].confidence * 100).toFixed(0)}% confidence and ${marketBasketRules[0].lift}x lift.` : 'Insufficient multi-item transactions for market basket analysis.',
+    products: topProduct ? `Top product by revenue: "${topProduct.productName}" (${topProduct.productCode}) with ${formatNPR(topProduct.totalRevenue)} from ${topProduct.totalQuantitySold} units sold. ${products.filter(p => p.abcClass === 'A').length} products are Class A (top 70% revenue).` : '',
+  };
 
   return {
     success: true,
@@ -463,6 +570,8 @@ function analyzeData(transactions: Transaction[]) {
     forecastData,
     rfmSegments,
     cohortData,
+    marketBasketRules,
+    analysisTexts,
   };
 }
 
@@ -505,7 +614,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Find header row (first row with many non-empty cells including key headers)
     let headerIdx = 0;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
       const row = rawData[i] || [];

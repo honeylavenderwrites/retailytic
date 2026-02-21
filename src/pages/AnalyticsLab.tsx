@@ -3,35 +3,11 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Line, ComposedChart,
 } from "recharts";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, FileText } from "lucide-react";
 import EmptyDataState from "@/components/EmptyDataState";
 
-const seasonalityData = [
-  { month: 'Jan', index: 85 }, { month: 'Feb', index: 72 },
-  { month: 'Mar', index: 88 }, { month: 'Apr', index: 95 },
-  { month: 'May', index: 102 }, { month: 'Jun', index: 108 },
-  { month: 'Jul', index: 92 }, { month: 'Aug', index: 98 },
-  { month: 'Sep', index: 105 }, { month: 'Oct', index: 100 },
-  { month: 'Nov', index: 115 }, { month: 'Dec', index: 140 },
-];
-
-const basketRules = [
-  { antecedent: 'Silk Top', consequent: 'Belt Half Pant', confidence: 0.72, support: 0.15, lift: 2.4 },
-  { antecedent: 'Shoes', consequent: 'Slipper', confidence: 0.58, support: 0.11, lift: 1.9 },
-  { antecedent: 'Belly Jeans', consequent: 'Off Shoulder Top', confidence: 0.52, support: 0.09, lift: 1.7 },
-  { antecedent: 'Corset', consequent: 'Halter Top', confidence: 0.48, support: 0.07, lift: 1.6 },
-  { antecedent: 'Pearls Bow T-Shirt', consequent: 'Shirt', confidence: 0.45, support: 0.08, lift: 1.5 },
-];
-
-const momentumMetrics = [
-  { label: 'Sales Velocity', value: '34.2 units/day', status: 'positive', change: '+8.4%' },
-  { label: 'Trend Direction', value: 'Upward', status: 'positive', change: '3-month' },
-  { label: 'Seasonal Phase', value: 'Post-Peak', status: 'neutral', change: 'Recovery' },
-  { label: 'Forecast Accuracy', value: '89.2%', status: 'positive', change: 'MAPE: 10.8%' },
-];
-
 export default function AnalyticsLab() {
-  const { monthlySalesData, forecastData, dataSource } = useDataStore();
+  const { monthlySalesData, forecastData, dataSource, marketBasketRules, analysisTexts } = useDataStore();
 
   if (dataSource === 'mock') {
     return (
@@ -42,10 +18,10 @@ export default function AnalyticsLab() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Analytics Lab</h1>
-            <p className="text-sm text-muted-foreground">Forecasting, seasonality & market basket analysis</p>
+            <p className="text-sm text-muted-foreground">Forecasting & market basket analysis</p>
           </div>
         </div>
-        <EmptyDataState title="No Analytics Data" description="Upload your sales file to see revenue forecasts, seasonality patterns and market basket analysis." />
+        <EmptyDataState title="No Analytics Data" description="Upload your sales file to see revenue forecasts and market basket analysis." />
       </div>
     );
   }
@@ -55,6 +31,9 @@ export default function AnalyticsLab() {
     ...forecastData.map(d => ({ month: d.month, actual: null as number | null, predicted: d.predicted, lower: d.lower, upper: d.upper })),
   ];
 
+  // Use actual computed rules from data, with fallback
+  const rules = marketBasketRules.length > 0 ? marketBasketRules : [];
+
   return (
     <div className="animate-slide-in space-y-6">
       <div className="flex items-center gap-3">
@@ -63,19 +42,8 @@ export default function AnalyticsLab() {
         </div>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Analytics Lab</h1>
-          <p className="text-sm text-muted-foreground">Forecasting, seasonality & market basket analysis</p>
+          <p className="text-sm text-muted-foreground">Forecasting & market basket analysis</p>
         </div>
-      </div>
-
-      {/* Momentum Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        {momentumMetrics.map((m) => (
-          <div key={m.label} className="rounded-lg border bg-card p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{m.label}</p>
-            <p className="mt-1 text-lg font-bold text-card-foreground">{m.value}</p>
-            <p className={`text-xs ${m.status === 'positive' ? 'text-success' : 'text-muted-foreground'}`}>{m.change}</p>
-          </div>
-        ))}
       </div>
 
       {/* Forecast Chart */}
@@ -102,38 +70,25 @@ export default function AnalyticsLab() {
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        {analysisTexts?.forecast && (
+          <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+            <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.forecast}</p>
+          </div>
+        )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Seasonality */}
-        <div className="rounded-lg border bg-card p-5">
-          <h3 className="text-sm font-semibold text-card-foreground">Seasonality Index</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Monthly demand pattern (100 = average)</p>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={seasonalityData}>
-                <defs>
-                  <linearGradient id="seasonGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(262, 52%, 56%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(262, 52%, 56%)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 90%)" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} />
-                <YAxis tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} domain={[60, 150]} />
-                <Tooltip />
-                <Area type="monotone" dataKey="index" stroke="hsl(262, 52%, 56%)" fill="url(#seasonGrad)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+      {/* Market Basket */}
+      <div className="rounded-lg border bg-card p-5">
+        <h3 className="text-sm font-semibold text-card-foreground">Market Basket Rules</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Computed from actual multi-item transactions — association rules</p>
+        {rules.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            Not enough multi-item transactions found to compute association rules.
           </div>
-        </div>
-
-        {/* Market Basket */}
-        <div className="rounded-lg border bg-card p-5">
-          <h3 className="text-sm font-semibold text-card-foreground">Market Basket Rules</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Frequently bought together — association rules</p>
+        ) : (
           <div className="space-y-3">
-            {basketRules.map((rule, i) => (
+            {rules.map((rule, i) => (
               <div key={i} className="rounded-md border px-3 py-3">
                 <div className="flex items-center gap-2 text-sm">
                   <span className="font-medium text-card-foreground">{rule.antecedent}</span>
@@ -148,7 +103,13 @@ export default function AnalyticsLab() {
               </div>
             ))}
           </div>
-        </div>
+        )}
+        {analysisTexts?.basket && (
+          <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+            <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.basket}</p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -26,14 +26,10 @@ function buildTrendUrl(queries: string[], geo = "", type: "TIMESERIES" | "RELATE
     geo,
     time: "today 12-m",
   }));
-  const req = JSON.stringify({ comparisonItem, category: 0, property: "" });
-  const encodedQueries = queries.map(q => encodeURIComponent(q)).join(",");
-  const params = new URLSearchParams({
-    req,
-    tz: "0",
-    eq: `q=${encodedQueries}&hl=en`,
-  });
-  return `${EMBED_BASE}/${type}?${params.toString()}`;
+  const req = { comparisonItem, category: 0, property: "" };
+  const encodedReq = encodeURIComponent(JSON.stringify(req));
+  const q = queries.map(encodeURIComponent).join(",");
+  return `${EMBED_BASE}/${type}?req=${encodedReq}&tz=-345&eq=q%3D${q}%26date%3Dtoday%2012-m`;
 }
 
 interface SummerTrend {
