@@ -1,6 +1,25 @@
 import { create } from 'zustand';
 import * as mock from '@/data/mockData';
 
+interface MarketBasketRule {
+  antecedent: string;
+  consequent: string;
+  confidence: number;
+  support: number;
+  lift: number;
+}
+
+interface AnalysisTexts {
+  revenue: string;
+  category: string;
+  payment: string;
+  customers: string;
+  segmentation: string;
+  forecast: string;
+  basket: string;
+  products: string;
+}
+
 interface DataState {
   dataSource: 'mock' | 'uploaded';
   kpiData: mock.KPI[];
@@ -13,6 +32,9 @@ interface DataState {
   forecastData: typeof mock.forecastData;
   rfmSegments: typeof mock.rfmSegments;
   cohortData: typeof mock.cohortData;
+  marketBasketRules: MarketBasketRule[];
+  analysisTexts: AnalysisTexts | null;
+  rawSummary: any;
   setAnalysisData: (data: any) => void;
   resetToMock: () => void;
 }
@@ -29,6 +51,9 @@ export const useDataStore = create<DataState>((set) => ({
   forecastData: mock.forecastData,
   rfmSegments: mock.rfmSegments,
   cohortData: mock.cohortData,
+  marketBasketRules: [],
+  analysisTexts: null,
+  rawSummary: null,
 
   setAnalysisData: (data: any) => {
     set({
@@ -43,6 +68,9 @@ export const useDataStore = create<DataState>((set) => ({
       forecastData: data.forecastData ?? mock.forecastData,
       rfmSegments: data.rfmSegments ?? mock.rfmSegments,
       cohortData: data.cohortData ?? mock.cohortData,
+      marketBasketRules: data.marketBasketRules ?? [],
+      analysisTexts: data.analysisTexts ?? null,
+      rawSummary: data.summary ?? null,
     });
   },
 
@@ -59,6 +87,9 @@ export const useDataStore = create<DataState>((set) => ({
       forecastData: mock.forecastData,
       rfmSegments: mock.rfmSegments,
       cohortData: mock.cohortData,
+      marketBasketRules: [],
+      analysisTexts: null,
+      rawSummary: null,
     });
   },
 }));

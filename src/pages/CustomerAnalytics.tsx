@@ -1,7 +1,8 @@
 import { useDataStore } from "@/store/dataStore";
 import {
-  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from "recharts";
+import { FileText } from "lucide-react";
 import EmptyDataState from "@/components/EmptyDataState";
 
 const SEGMENT_COLORS: Record<string, string> = {
@@ -23,7 +24,7 @@ function getCohortColor(val: number | null): string {
 }
 
 export default function CustomerAnalytics() {
-  const { customers, rfmSegments, cohortData, dataSource } = useDataStore();
+  const { customers, rfmSegments, cohortData, dataSource, analysisTexts } = useDataStore();
 
   if (dataSource === 'mock') {
     return (
@@ -37,13 +38,23 @@ export default function CustomerAnalytics() {
     );
   }
 
-  const clusterData = customers.map((c) => ({
-    name: c.name,
-    x: c.totalOrders,
-    y: c.avgOrderValue,
-    z: c.totalSpend / 100,
-    segment: c.segment,
-  }));
+  // Segment distribution for pie chart
+  const segmentData = Object.entries(
+    customers.reduce((acc, c) => {
+      acc[c.segment] = (acc[c.segment] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  ).map(([name, value]) => ({ name, value }));
+
+  // Top customers bar chart
+  const topCustomers = customers
+    .filter(c => c.name !== 'Cash Party (Walk-in)')
+    .slice(0, 10)
+    .map(c => ({
+      name: c.name.length > 12 ? c.name.slice(0, 12) + '…' : c.name,
+      spend: c.totalSpend,
+      segment: c.segment,
+    }));
 
   return (
     <div className="animate-slide-in space-y-6">
@@ -53,8 +64,8 @@ export default function CustomerAnalytics() {
       </div>
 
       {/* RFM Segments */}
-      <div className="grid gap-4 lg:grid-cols-6">
-        {rfmSegments.map((seg) => (
+      <div className="grid gap-4 lg:grid-cols-5">
+        {rfmSegments.filter(s => s.count > 0).map((seg) => (
           <div key={seg.segment} className="rounded-lg border bg-card p-4">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{seg.segment}</p>
             <p className="mt-1 text-xl font-bold text-card-foreground">{seg.count}</p>
@@ -63,42 +74,80 @@ export default function CustomerAnalytics() {
           </div>
         ))}
       </div>
-
-      {/* Cluster Scatter */}
-      <div className="rounded-lg border bg-card p-5">
-        <h3 className="text-sm font-semibold text-card-foreground">Customer Segmentation Scatter</h3>
-        <p className="mb-4 text-xs text-muted-foreground">Orders vs. Avg Order Value — sized by total spend</p>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 90%)" />
-              <XAxis dataKey="x" name="Orders" tick={{ fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} label={{ value: 'Total Orders', position: 'bottom', fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} />
-              <YAxis dataKey="y" name="AOV" tick={{ fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} label={{ value: 'Avg Order Value', angle: -90, position: 'insideLeft', fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} />
-              <ZAxis dataKey="z" range={[40, 300]} />
-              <Tooltip
-                formatter={(value: number, name: string) => [
-                  name === 'AOV' ? `रू ${value.toLocaleString()}` : value,
-                  name === 'x' ? 'Orders' : 'AOV'
-                ]}
-                labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''}
-              />
-              <Scatter data={clusterData}>
-                {clusterData.map((entry, i) => (
-                  <Cell key={i} fill={SEGMENT_COLORS[entry.segment] || 'hsl(220, 10%, 46%)'} opacity={0.8} />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
+      {analysisTexts?.segmentation && (
+        <div className="rounded-md bg-muted/50 p-3 flex gap-2">
+          <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.segmentation}</p>
         </div>
-        <div className="mt-3 flex flex-wrap gap-3">
-          {Object.entries(SEGMENT_COLORS).map(([seg, color]) => (
-            <div key={seg} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <div className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
-              {seg}
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Segment Distribution Pie */}
+        <div className="rounded-lg border bg-card p-5">
+          <h3 className="text-sm font-semibold text-card-foreground">Customer Segment Distribution</h3>
+          <p className="mb-4 text-xs text-muted-foreground">Breakdown by RFM segment</p>
+          <div className="flex items-center gap-6">
+            <div className="h-48 w-48 shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={segmentData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={70}
+                    dataKey="value"
+                    paddingAngle={3}
+                  >
+                    {segmentData.map((entry) => (
+                      <Cell key={entry.name} fill={SEGMENT_COLORS[entry.name] || 'hsl(220, 10%, 46%)'} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => [value, 'Customers']} />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
-          ))}
+            <div className="flex-1 space-y-3">
+              {segmentData.map((seg) => (
+                <div key={seg.name} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2.5 w-2.5 rounded-full" style={{ background: SEGMENT_COLORS[seg.name] || 'hsl(220, 10%, 46%)' }} />
+                    <span className="text-card-foreground">{seg.name}</span>
+                  </div>
+                  <span className="font-medium text-muted-foreground">{seg.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Top Customers Bar */}
+        <div className="rounded-lg border bg-card p-5">
+          <h3 className="text-sm font-semibold text-card-foreground">Top 10 Customers by Spend</h3>
+          <p className="mb-4 text-xs text-muted-foreground">Highest lifetime value (excl. walk-ins)</p>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topCustomers} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 90%)" />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} width={100} />
+                <Tooltip formatter={(value: number) => [`रू ${value.toLocaleString()}`, 'Total Spend']} />
+                <Bar dataKey="spend" radius={[0, 4, 4, 0]}>
+                  {topCustomers.map((entry, i) => (
+                    <Cell key={i} fill={SEGMENT_COLORS[entry.segment] || 'hsl(220, 10%, 46%)'} opacity={0.85} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
+      {analysisTexts?.customers && (
+        <div className="rounded-md bg-muted/50 p-3 flex gap-2">
+          <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.customers}</p>
+        </div>
+      )}
 
       {/* Cohort Grid */}
       <div className="rounded-lg border bg-card p-5">

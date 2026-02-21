@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Treemap
 } from "recharts";
-import { AlertTriangle } from "lucide-react";
+import { FileText } from "lucide-react";
 
 const COLORS = [
   'hsl(173, 58%, 39%)',
@@ -30,7 +30,7 @@ const CustomTreemapContent = (props: any) => {
 };
 
 export default function Dashboard() {
-  const { kpiData, monthlySalesData, categoryBreakdown, inventoryAlerts, paymentMethods, dataSource } = useDataStore();
+  const { kpiData, monthlySalesData, categoryBreakdown, paymentMethods, dataSource, analysisTexts } = useDataStore();
 
   if (dataSource === 'mock') {
     return (
@@ -55,7 +55,6 @@ export default function Dashboard() {
 
   return (
     <div className="animate-slide-in space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Executive Overview</h1>
         <p className="text-sm text-muted-foreground">Real-time business health — FY 2025/26</p>
@@ -99,6 +98,12 @@ export default function Dashboard() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          {analysisTexts?.revenue && (
+            <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+              <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.revenue}</p>
+            </div>
+          )}
         </div>
 
         {/* Category Treemap */}
@@ -116,84 +121,58 @@ export default function Dashboard() {
               />
             </ResponsiveContainer>
           </div>
+          {analysisTexts?.category && (
+            <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+              <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.category}</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Bottom Row */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Payment Methods */}
-        <div className="rounded-lg border bg-card p-5">
-          <h3 className="text-sm font-semibold text-card-foreground">Payment Methods</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Transaction mode breakdown</p>
-          <div className="flex items-center gap-6">
-            <div className="h-40 w-40 shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={paymentMethods}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={35}
-                    outerRadius={65}
-                    dataKey="percentage"
-                    paddingAngle={3}
-                  >
-                    {paymentMethods.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => [`${value}%`, 'Share']} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex-1 space-y-3">
-              {paymentMethods.map((pm, i) => (
-                <div key={pm.method} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS[i] }} />
-                    <span className="text-card-foreground">{pm.method}</span>
-                  </div>
-                  <span className="font-medium text-muted-foreground">{pm.percentage}%</span>
-                </div>
-              ))}
-            </div>
+      {/* Payment Methods */}
+      <div className="rounded-lg border bg-card p-5">
+        <h3 className="text-sm font-semibold text-card-foreground">Payment Methods</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Transaction mode breakdown</p>
+        <div className="flex items-center gap-6">
+          <div className="h-40 w-40 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={paymentMethods}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={35}
+                  outerRadius={65}
+                  dataKey="percentage"
+                  paddingAngle={3}
+                >
+                  {paymentMethods.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => [`${value}%`, 'Share']} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-
-        {/* Inventory Alerts */}
-        <div className="rounded-lg border bg-card p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-card-foreground">Inventory Alerts</h3>
-              <p className="text-xs text-muted-foreground">Products approaching stock-out</p>
-            </div>
-            <span className="flex h-6 items-center rounded-full bg-destructive/10 px-2.5 text-xs font-medium text-destructive">
-              {inventoryAlerts.filter(a => a.severity === 'critical').length} Critical
-            </span>
-          </div>
-          <div className="space-y-3">
-            {inventoryAlerts.map((alert) => (
-              <div
-                key={alert.productCode}
-                className="flex items-center justify-between rounded-md border px-3 py-2.5"
-              >
-                <div className="flex items-center gap-3">
-                  <AlertTriangle
-                    className={`h-4 w-4 ${alert.severity === 'critical' ? 'text-destructive' : 'text-warning'}`}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-card-foreground">{alert.productName}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{alert.productCode}</p>
-                  </div>
+          <div className="flex-1 space-y-3">
+            {paymentMethods.map((pm, i) => (
+              <div key={pm.method} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                  <span className="text-card-foreground">{pm.method}</span>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-card-foreground">{alert.stockLevel} left</p>
-                  <p className="text-xs text-muted-foreground">~{alert.daysUntilStockout}d until out</p>
-                </div>
+                <span className="font-medium text-muted-foreground">{pm.percentage}%</span>
               </div>
             ))}
           </div>
         </div>
+        {analysisTexts?.payment && (
+          <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+            <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.payment}</p>
+          </div>
+        )}
       </div>
     </div>
   );

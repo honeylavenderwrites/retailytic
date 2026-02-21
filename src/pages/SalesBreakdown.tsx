@@ -3,11 +3,11 @@ import { useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { Search, ArrowUpDown } from "lucide-react";
+import { Search, ArrowUpDown, FileText } from "lucide-react";
 import EmptyDataState from "@/components/EmptyDataState";
 
 export default function SalesBreakdown() {
-  const { products, dataSource } = useDataStore();
+  const { products, dataSource, analysisTexts } = useDataStore();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<'totalRevenue' | 'totalQuantitySold'>('totalRevenue');
 
@@ -18,19 +18,15 @@ export default function SalesBreakdown() {
     )
     .sort((a, b) => b[sortKey] - a[sortKey]);
 
-  const paretoData = (() => {
-    const sorted = [...products].sort((a, b) => b.totalRevenue - a.totalRevenue);
-    const totalRev = sorted.reduce((s, p) => s + p.totalRevenue, 0);
-    let cumulative = 0;
-    return sorted.map((p) => {
-      cumulative += p.totalRevenue;
-      return {
-        name: p.productCode,
-        revenue: p.totalRevenue,
-        cumulativePercent: Math.round((cumulative / totalRev) * 100),
-      };
-    });
-  })();
+  // Top 15 products bar chart data
+  const topProductsData = [...products]
+    .sort((a, b) => b.totalRevenue - a.totalRevenue)
+    .slice(0, 15)
+    .map(p => ({
+      name: p.productName.length > 15 ? p.productName.slice(0, 15) + '…' : p.productName,
+      revenue: p.totalRevenue,
+      quantity: p.totalQuantitySold,
+    }));
 
   if (dataSource === 'mock') {
     return (
@@ -39,7 +35,7 @@ export default function SalesBreakdown() {
           <h1 className="text-2xl font-bold tracking-tight">Sales Breakdown</h1>
           <p className="text-sm text-muted-foreground">Product-code-wise revenue, quantity & profitability</p>
         </div>
-        <EmptyDataState title="No Sales Data" description="Upload your sales file to see product-level revenue, Pareto analysis and ABC classification." />
+        <EmptyDataState title="No Sales Data" description="Upload your sales file to see product-level revenue and ABC classification." />
       </div>
     );
   }
@@ -51,25 +47,30 @@ export default function SalesBreakdown() {
         <p className="text-sm text-muted-foreground">Product-code-wise revenue, quantity & profitability</p>
       </div>
 
-      {/* Pareto Chart */}
+      {/* Top Products Chart */}
       <div className="rounded-lg border bg-card p-5">
-        <h3 className="text-sm font-semibold text-card-foreground">Pareto Analysis (80/20)</h3>
-        <p className="mb-4 text-xs text-muted-foreground">Revenue concentration by product</p>
-        <div className="h-56">
+        <h3 className="text-sm font-semibold text-card-foreground">Top Products by Revenue</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Top 15 revenue-generating products</p>
+        <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={paretoData}>
+            <BarChart data={topProductsData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 90%)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} />
-              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} tickFormatter={(v) => `${v}%`} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} width={120} />
               <Tooltip formatter={(value: number, name: string) => [
-                name === 'revenue' ? `रू ${value.toLocaleString()}` : `${value}%`,
-                name === 'revenue' ? 'Revenue' : 'Cumulative %'
+                name === 'revenue' ? `रू ${value.toLocaleString()}` : value,
+                name === 'revenue' ? 'Revenue' : 'Quantity'
               ]} />
-              <Bar yAxisId="left" dataKey="revenue" fill="hsl(173, 58%, 39%)" radius={[4, 4, 0, 0]} opacity={0.8} />
+              <Bar dataKey="revenue" fill="hsl(173, 58%, 39%)" radius={[0, 4, 4, 0]} opacity={0.85} />
             </BarChart>
           </ResponsiveContainer>
         </div>
+        {analysisTexts?.products && (
+          <div className="mt-4 rounded-md bg-muted/50 p-3 flex gap-2">
+            <FileText className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{analysisTexts.products}</p>
+          </div>
+        )}
       </div>
 
       {/* Product Table */}

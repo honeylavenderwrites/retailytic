@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.google-trends]
 verify_jwt = false
+
+[functions.summer-trends]
+verify_jwt = false
+
+[functions.chat-with-data]
+verify_jwt = false
