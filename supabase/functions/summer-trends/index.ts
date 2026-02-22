@@ -1,12 +1,9 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,7 +25,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           {
             role: "user",
@@ -48,10 +45,7 @@ Return ONLY a valid JSON array of 6 objects, no markdown, no explanation outside
 
     const textData = await textRes.json();
     let rawText = textData.choices?.[0]?.message?.content || "[]";
-    
-    // Clean markdown code fences if present
     rawText = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    
     const trends = JSON.parse(rawText);
 
     // Step 2: Generate images for each trend
@@ -99,9 +93,10 @@ Return ONLY a valid JSON array of 6 objects, no markdown, no explanation outside
     return new Response(JSON.stringify({ trends: trendsWithImages }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
