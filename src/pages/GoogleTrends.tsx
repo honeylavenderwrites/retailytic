@@ -20,7 +20,7 @@ const WOMEN_CLOTHING_TOPICS = [
 
 const EMBED_BASE = "https://trends.google.com/trends/embed/explore";
 
-function buildTrendUrl(queries: string[], geo = "", type: "TIMESERIES" | "RELATED_QUERIES" = "TIMESERIES") {
+function buildTrendUrl(queries: string[], geo = "", type: "TIMESERIES" = "TIMESERIES") {
   const comparisonItem = queries.map(q => ({
     keyword: q,
     geo,
@@ -239,18 +239,6 @@ export default function GoogleTrends() {
               className="w-full rounded-md border-0"
               style={{ height: 400 }}
               title="Google Trends - Interest Over Time"
-              loading="lazy"
-            />
-          </div>
-
-          {/* Related Queries */}
-          <div className="rounded-lg border bg-card p-5">
-            <h3 className="mb-3 text-sm font-semibold text-card-foreground">Related Queries</h3>
-            <iframe
-              src={buildTrendUrl(activeQueries, "", "RELATED_QUERIES")}
-              className="w-full rounded-md border-0"
-              style={{ height: 500 }}
-              title="Google Trends - Related Queries"
               loading="lazy"
             />
           </div>
