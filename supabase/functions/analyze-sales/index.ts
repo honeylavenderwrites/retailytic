@@ -92,6 +92,9 @@ function normalizeCustomerName(name: string): string {
   const trimmed = name.trim();
   const upper = trimmed.toUpperCase();
   if (upper === 'CASH PARTY' || upper === 'CASHPARTY' || upper === 'CASH') return 'Cash Party (Walk-in)';
+  // Fonepy/FonePay is a payment method, not a customer
+  const lower = trimmed.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+  if (lower === 'fonepay' || lower === 'fonepy' || lower === 'fone pay') return '';
   return trimmed.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
@@ -156,23 +159,39 @@ function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
     const nonEmpty = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '').length;
     if (nonEmpty < 2) continue;
 
+    // Skip TOTAL / summary rows at the end of the sheet
+    const firstCell = String(row[0] || '').trim().toUpperCase();
+    if (firstCell === 'TOTAL' || firstCell === 'TOTAL >>' || firstCell.startsWith('TOTAL ') || firstCell === 'GRAND TOTAL') continue;
+    // Also check the product name column for totals
+    const productNameRaw = getVal(row, col.productName);
+    const productNameUpper = productNameRaw.toUpperCase();
+    if (productNameUpper === 'TOTAL' || productNameUpper.startsWith('TOTAL >>') || productNameUpper === 'GRAND TOTAL') continue;
+
     const dateVal = col.date !== -1 ? row[col.date] : null;
     const voucherVal = getVal(row, col.voucherNo);
-    const productNameVal = getVal(row, col.productName);
     const productCodeVal = getVal(row, col.productCode);
     const dateStr = parseDate(dateVal);
 
-    const isHeaderRow = !!(dateStr && voucherVal && productNameVal && !productCodeVal);
-    const isDetailRow = !dateStr && !voucherVal && !!productNameVal && !!productCodeVal;
+    const isHeaderRow = !!(dateStr && voucherVal && productNameRaw && !productCodeVal);
+    const isDetailRow = !dateStr && !voucherVal && !!productNameRaw && !!productCodeVal;
 
     if (isHeaderRow) {
       if (currentTxn) transactions.push(currentTxn);
 
+      const customerName = normalizeCustomerName(productNameRaw);
+      // If customer name resolved to empty (e.g. FonePay), use the payment method as transaction mode
+      const rawMode = getVal(row, col.transactionMode);
+      let transactionMode = normalizePaymentMethod(rawMode);
+      if (!customerName) {
+        // The "customer" was actually a payment method — mark as walk-in
+        transactionMode = normalizePaymentMethod(productNameRaw);
+      }
+
       currentTxn = {
         date: dateStr,
         voucherNo: voucherVal,
-        customerName: normalizeCustomerName(productNameVal),
-        transactionMode: normalizePaymentMethod(getVal(row, col.transactionMode)),
+        customerName: customerName || 'Cash Party (Walk-in)',
+        transactionMode,
         products: [],
         totalGross: parseNumber(col.gross !== -1 ? row[col.gross] : 0),
         totalDiscount: parseNumber(col.discount !== -1 ? row[col.discount] : 0),
@@ -182,7 +201,7 @@ function parseTransactions(rawRows: any[][], headers: string[]): Transaction[] {
       };
     } else if (isDetailRow && currentTxn) {
       currentTxn.products.push({
-        productName: productNameVal.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '),
+        productName: productNameRaw.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '),
         productCode: productCodeVal,
         unit: getVal(row, col.unit) || 'Pcs',
         quantity: parseNumber(col.quantity !== -1 ? row[col.quantity] : 1),
