@@ -42,6 +42,7 @@ export interface Customer {
   rfmScore: number;
   clv: number;
   churnRisk: number;
+  preferredPayment?: string;
 }
 
 export interface KPI {
